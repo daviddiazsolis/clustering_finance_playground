@@ -1,0 +1,186 @@
+<div class="wrap">
+<nav class="tabs" id="tabs" aria-label="Temas">
+  <button type="button" data-m="seg"><span>01</span>Segmentar clientes</button>
+  <button type="button" data-m="par"><span>02</span>Pair trading</button>
+  <button type="button" data-m="scf"><span>03</span>Perfilar inversionistas y sesgos</button>
+  <button type="button" data-m="hrp"><span>04</span>Carteras: de Markowitz a HRP</button>
+</nav>
+
+<!-- ===================== 01 SEGMENTACION ===================== -->
+<div class="modelo" id="m-seg">
+<div class="controls">
+  <div class="ctrl" data-pasos="1,2,3,4"><label>Cómo entran la ocupación y el estado civil</label><div class="seg" id="seg-cols"><button type="button" data-c="mapeo" aria-pressed="true">Puntajes de negocio</button><button type="button" data-c="onehot" aria-pressed="false">One-hot (a ciegas)</button><button type="button" data-c="num" aria-pressed="false">No entran</button></div></div>
+  <div class="ctrl" data-pasos="2,3,4" data-mapeo><label for="seg-div">Divorciado en el eje compromiso (Soltero 0, Casado 100): <b id="seg-div-v">50</b></label><input type="range" id="seg-div" min="0" max="100" step="10" value="50" style="width:200px"></div>
+  <div class="ctrl" data-pasos="2,3,4" data-mapeo><label>Mapeo de la ocupación</label><div class="seg" id="seg-ocu"><button type="button" data-o="base" aria-pressed="true">Ingreso y estabilidad</button><button type="button" data-o="jub60" aria-pressed="false">Jubilado con ingreso 60</button><button type="button" data-o="sinest" aria-pressed="false">Solo ingreso</button><button type="button" data-o="etapa" aria-pressed="false">Ingreso y etapa de vida</button></div></div>
+  <div class="ctrl" data-pasos="3,4"><label for="seg-k">Número de segmentos K: <b id="seg-k-v">5</b></label><input type="range" id="seg-k" min="2" max="8" value="5" style="width:200px"></div>
+  <div class="ctrl" data-pasos="3"><label>Pasos de k-means</label><div class="seg" id="seg-anim"><button type="button" data-a="fin" aria-pressed="true">Resultado final</button><button type="button" data-a="paso" aria-pressed="false">Iteración por iteración</button></div></div>
+  <div class="ctrl"><label>&nbsp;</label><button type="button" id="seg-replay">Volver a animar</button></div>
+</div>
+<nav class="rail" id="seg-rail"></nav>
+
+<section class="panel" id="seg-s0">
+  <h2>5.660 clientes y ninguna etiqueta</h2>
+  <p>Hasta aquí todos los problemas del curso tenían una respuesta correcta guardada en una columna, y el modelo aprendía a predecirla. Hoy la columna no existe. Un banco tiene 5.660 clientes con su edad, ocupación, estado civil, educación y los productos que tienen contratados, y la pregunta es otra: <b>¿qué tipos de clientes hay?</b> Nadie dice cuántos ni cómo se llaman. Eso es aprendizaje <b>no supervisado</b>, y la herramienta es el <b>clustering</b>: encontrar grupos de clientes parecidos entre sí y distintos de los demás, para diseñar pocas campañas en vez de una por cliente, elegir canal y lenguaje por grupo, y mirar la mora y la rentabilidad por tipo de cliente.</p>
+  <p>Todo lo de esta pestaña se calcula en vivo en tu navegador con los 5.660 clientes reales: la codificación, k-means, los criterios para elegir K, las tablas de perfil y la sensibilidad a los supuestos. Antes de modelar hay que mirar qué hay en cada columna. Solo la edad es un número; las otras siete son texto, y en varias aparece <b>"Desconocido"</b>, que no es una categoría más sino un dato faltante con disfraz.</p>
+  <div class="flow" id="seg-datos"></div>
+  <p class="note"><b>Tres decisiones que la tabla ya toma.</b> <code>impago</code> tiene un solo "Si" entre 5.660 clientes: una columna donde todos valen lo mismo no separa a nadie, y además es la que uno querría predecir con los segmentos, no usar para armarlos; se saca. <code>hipotecario</code> y <code>credito_consumo</code> tienen 115 desconocidos (2%): faltantes. Y <code>educacion</code> tiene un orden natural; <code>ocupacion</code> y <code>estado_civil</code> no tienen un orden único, pero sí <b>similitudes</b> que cualquiera del banco reconoce (un obrero se parece más a un empleado de servicios que a un gerente), y hacerlas explícitas es el centro del paso 2.</p>
+</section>
+
+<section class="panel" id="seg-s1">
+  <h2>Qué hace k-means, y por qué solo ve distancias</h2>
+  <p>K-means (MacQueen, 1967) busca \(K\) puntos, los <b>centroides</b>, de modo que cada cliente quede asignado al más cercano y la suma de distancias al cuadrado de cada cliente a su centroide, la <b>inercia</b>, sea lo más chica posible: \( \sum_{k} \sum_{i \in C_k} \lVert x_i - \mu_k \rVert^2 \), con \(C_k\) los clientes del grupo \(k\), \(x_i\) el vector numérico del cliente \(i\) y \(\mu_k\) el promedio de su grupo. El algoritmo: elegir \(K\) centroides iniciales, <b>asignar</b> cada cliente al más cercano, <b>mover</b> cada centroide al promedio de los suyos, y repetir hasta que nadie cambie de grupo. Cada vuelta baja la inercia, así que converge; pero a un mínimo local que depende del punto de partida, y por eso se corre varias veces y se guarda la mejor.</p>
+  <p>Lo que hay que retener es "el centroide más cercano": k-means no sabe qué es una ocupación; solo calcula distancias euclidianas entre filas de números. Todo lo que decidamos sobre cómo convertir "Obrero" o "Casado" en números se traduce en qué clientes quedan juntos. Por eso el paso siguiente es el más importante.</p>
+  <div class="flow" id="seg-km"></div>
+</section>
+
+<section class="panel" id="seg-s2">
+  <h2>Codificar con lógica de negocio: la similitud hay que escribirla a mano</h2>
+  <p>La receta automática para una columna de texto es el <b>one-hot</b>: una columna 0/1 por categoría. Es rápido y tiene un costo que no se ve hasta mirar los segmentos: <b>todas las categorías quedan a la misma distancia entre sí</b> (la distancia entre dos vectores one-hot distintos es siempre \(\sqrt{2}\)). Para k-means, un casado queda tan lejos de un divorciado como de un soltero, un gerente tan lejos de un técnico como de un estudiante, y si la columna fuera la comuna, Providencia quedaría tan lejos de Las Condes como de Puerto Montt. Toda la información de <b>similitud</b> entre valores de una misma columna, obvia para cualquier persona del banco, se pierde; y la variable pasa a ocupar tantas dimensiones como categorías tenga.</p>
+  <p>La alternativa es hacer el trabajo que el algoritmo no puede hacer: definir un <b>eje con sentido de negocio</b> y asignar a cada categoría un <b>puntaje</b> sobre ese eje. Para el estado civil, el grado de compromiso familiar del hogar: Soltero 0, Divorciado 50, Casado 100 (el 50 dice que un divorciado tuvo un hogar y hoy decide solo; está a mitad de camino, no equidistante de todo). Para la ocupación un eje no alcanza, porque un jubilado y un estudiante tienen ambos ingreso bajo pero uno fijo y seguro y el otro casi inexistente: usamos <b>ingreso esperado</b> (Gerente 100 ... Desempleado 0) y <b>estabilidad del ingreso</b> (Jubilado 100, Administrativo 85 ... Desempleado 0). Doce categorías pasan a ser dos números con lectura clara. La educación va a la misma escala (0, 25, 50, 75, 100, con el supuesto declarado de saltos iguales), y los "Desconocido" se imputan con la mediana del puntaje. Al final se estandariza cada columna para que ninguna mande por su unidad; estandarizar no cambia las cercanías dentro de un eje, solo cuánto pesa frente a los demás.</p>
+  <p>Tres reglas hacen de esto un análisis y no una opinión suelta: <b>declarar</b> los supuestos antes de correr nada (la tabla de puntajes), <b>mantenerlos consistentes</b> durante todo el análisis (los mismos puntajes para segmentar, interpretar y asignar clientes nuevos), y <b>leer los resultados con esa connotación</b> ("estabilidad 80" significa alto en el eje que nosotros definimos). Los controles de arriba permiten cambiar los supuestos (el divorciado, el mapeo de la ocupación) o pasar a one-hot, y los pasos siguientes muestran qué cambia.</p>
+  <div class="flow" id="seg-pre"></div>
+</section>
+
+<section class="panel" id="seg-s3">
+  <h2>Cuántos grupos, y el ajuste en vivo</h2>
+  <p>K-means necesita \(K\). La <b>inercia</b> siempre baja al subir \(K\) (con un grupo por cliente vale cero), así que se busca el <b>codo</b>: donde agregar un grupo ya casi no la reduce. La <b>silueta</b> (Rousseeuw, 1987) de un cliente compara su distancia promedio a los de su grupo (\(a_i\)) con la distancia promedio al grupo vecino más próximo (\(b_i\)): \( s_i = (b_i - a_i)/\max(a_i, b_i) \), cerca de 1 si está claramente bien ubicado, cerca de 0 en la frontera, negativa si probablemente está en el grupo equivocado; el promedio es la silueta del agrupamiento y se busca el <b>máximo</b>. Sobre 0,5 se habla de estructura razonable y bajo 0,25 de estructura débil; con clientes reales rara vez se pasa de 0,3, y no es un fracaso: los clientes forman un continuo, no islas.</p>
+  <p>Mueve K y mira las dos curvas (calculadas en vivo para la codificación elegida). Con "iteración por iteración" se ve a k-means converger: la inercia baja en cada vuelta y los centroides dejan de moverse en pocas iteraciones. Fíjate en que la silueta casi no distingue entre puntajes y one-hot: el criterio numérico no avisa del problema de codificar a ciegas.</p>
+  <div class="flow" id="seg-fit"></div>
+  <p class="note" id="seg-fit-nota"></p>
+</section>
+
+<section class="panel" id="seg-s4">
+  <h2>Interpretar en los ejes definidos, y medir de qué depende</h2>
+  <p>El modelo entregó una etiqueta por cliente y nada más. Interpretar es volver a unidades que entendemos: para cada segmento, la edad promedio, el puntaje promedio en cada eje que definimos, el porcentaje con cada producto y la composición por ocupación y estado civil originales. Aquí se cobra el trabajo del paso 2: como los ejes los definimos nosotros, los segmentos se leen en esos términos y cada número de la tabla se puede rastrear hasta una decisión declarada. Las pruebas confirman: <b>ANOVA</b> para las numéricas y <b>chi-cuadrado</b> para las categóricas; con 5.660 clientes casi todo sale significativo, así que sirven sobre todo para detectar la columna que <b>no</b> separa.</p>
+  <p>Con puntajes, los segmentos cruzan ocupaciones (estudiantes con desempleados y dueñas de casa: "sin ingreso propio"; administrativos con técnicos y gerentes casados: "profesionales casados") porque les dijimos qué ocupaciones se parecen. Pasa a <b>one-hot</b> y compara: varios segmentos quedan definidos por una sola categoría (los estudiantes, los jubilados, los obreros), con una silueta casi igual. Y la pregunta final de toda segmentación con supuestos: ¿cuánto cambia si cambio un supuesto? El índice de <b>Rand ajustado</b> (Hubert y Arabie, 1985) contra la segmentación base lo mide en vivo: mueve el divorciado, cambia el mapeo de la ocupación y mira cuántos clientes cambian de compañeros. Una buena segmentación cambia donde se cambió el supuesto, y en ningún otro lado.</p>
+  <div class="flow" id="seg-perf"></div>
+  <p class="note" id="seg-perf-nota"></p>
+</section>
+<div class="nav"><button type="button" id="seg-prev">Anterior</button><button type="button" id="seg-next">Siguiente</button></div>
+</div>
+
+<!-- ===================== 02 PAIR TRADING ===================== -->
+<div class="modelo" id="m-par">
+<div class="controls">
+  <div class="ctrl" data-pasos="3"><label>Pares</label><div class="seg" id="par-lista"><button type="button" data-l="c" aria-pressed="true">Co-movimiento con filtros</button><button type="button" data-l="v" aria-pressed="false">Retorno y volatilidad</button></div></div>
+  <div class="ctrl" data-pasos="3"><label>Parámetros del z-score</label><div class="seg" id="par-zm"><button type="button" data-z="m" aria-pressed="true">Ventana móvil de 60 días</button><button type="button" data-z="f" aria-pressed="false">Fijos (2021 a 2023)</button></div></div>
+  <div class="ctrl" data-pasos="3"><label for="par-ent">Entrada |z| > <b id="par-ent-v">2,0</b></label><input type="range" id="par-ent" min="10" max="35" value="20" style="width:150px"></div>
+  <div class="ctrl" data-pasos="3"><label for="par-sal">Salida |z| < <b id="par-sal-v">0,5</b></label><input type="range" id="par-sal" min="0" max="15" value="5" style="width:150px"></div>
+  <div class="ctrl" data-pasos="3"><label for="par-stop">Stop |z| > <b id="par-stop-v">4,0</b></label><input type="range" id="par-stop" min="25" max="80" value="40" style="width:150px"></div>
+  <div class="ctrl" data-pasos="3"><label for="par-par">Par de cerca: <b id="par-par-v"></b></label><input type="range" id="par-par" min="0" max="19" value="0" style="width:150px"></div>
+  <div class="ctrl"><label>&nbsp;</label><button type="button" id="par-replay">Volver a animar</button></div>
+</div>
+<nav class="rail" id="par-rail"></nav>
+
+<section class="panel" id="par-s0">
+  <h2>Dos acciones que caminan juntas</h2>
+  <p>Coca-Cola y Pepsi venden casi lo mismo a casi la misma gente. Sus precios no son iguales, pero la razón entre ellos se mueve en una banda: cuando una sube mucho más que la otra, suele ser transitorio y se corrige en semanas. Un <i>pair trade</i> apuesta a esa corrección: cuando A está cara respecto de B, se <b>vende corto A y se compra B</b>, y se cierra cuando la diferencia vuelve a su nivel. Si el mercado entero sube o baja, las dos patas se compensan: la apuesta es sobre la <b>relación</b>, no sobre el mercado. Hacen falta tres cosas: que exista un \(\beta\) tal que el <b>spread</b> \( \log P_A - \beta \log P_B \) oscile alrededor de un nivel fijo (<b>cointegración</b>), que vuelva rápido (<b>vida media</b> corta) y que las desviaciones paguen los costos. Y el riesgo tiene nombre: que la relación se rompa; por eso toda estrategia lleva un <b>stop</b>.</p>
+  <p>Con 500 acciones hay 124.750 pares posibles. Probar la cointegración de todos no solo tarda: si la prueba se equivoca el 5% de las veces, sobre 124.750 pares declara cointegrados unos <b>6.200 pares que no lo están</b>, y no hay forma de distinguirlos mirando el valor p. Es el problema de las <b>pruebas múltiples</b>. El clustering agrupa las acciones parecidas y busca pares solo dentro de cada grupo: menos pruebas, y entre acciones con una razón económica para moverse juntas. Lo que hay que decidir es qué significa "parecerse". La regla de oro, como siempre: los pares se descubren con 2021 a 2023 y se operan con 2024 y 2025.</p>
+  <div class="flow" id="par-datos"></div>
+</section>
+
+<section class="panel" id="par-s1">
+  <h2>Primer intento: retorno y volatilidad</h2>
+  <p>La forma más simple de describir una acción es con su retorno promedio anual y su volatilidad en el período de búsqueda. Dos columnas, k-means, y los grupos son franjas en ese plano. Nada en ellos dice que dos acciones <b>se muevan juntas</b>: un banco y una farmacéutica con la misma volatilidad y el mismo retorno quedan en el mismo grupo aunque suban y bajen en días distintos. La prueba de <b>Engle y Granger</b> dentro de cada grupo (regresión de un log-precio sobre el otro, y prueba de estacionariedad del residuo) encuentra "cointegrados" el 8% de los pares probados, contra 5% por puro azar: la mayoría son falsos positivos, y los de menor valor p son parejas sin relación económica.</p>
+  <div class="flow" id="par-v1"></div>
+</section>
+
+<section class="panel" id="par-s2">
+  <h2>Segundo intento: cómo se mueve cada acción con las demás</h2>
+  <p>Lo que importa para un par es el <b>co-movimiento</b>, y esa información está en la matriz de correlaciones de los retornos (124.750 entradas). El resumen estándar es el <b>análisis de componentes principales</b> de los retornos diarios: la primera componente es "el mercado" (todas las acciones con cargas del mismo signo), las siguientes son contrastes sectoriales, y cada acción queda descrita por sus <b>cargas</b> en las primeras diez. Dos acciones con cargas parecidas suben y bajan los mismos días. Agrupando por eso, los grupos <b>recuperan los sectores</b> sin que nadie los nombre: hay un grupo casi puro de utilities, otro de real estate, otro de bancos, otro de semiconductores.</p>
+  <p>Dentro de esos grupos, y con tres filtros que un operador exigiría (correlación de retornos de al menos 0,6, \(\beta\) entre 0,5 y 2, y vida media del spread menor a 60 días), quedan pares con sentido: dos utilities de Michigan, dos constructoras, dos petroleras, dos bancos.</p>
+  <div class="flow" id="par-v2"></div>
+</section>
+
+<section class="panel" id="par-s3">
+  <h2>El backtest honesto, en vivo</h2>
+  <p>La regla: se estandariza el spread como un <b>z-score</b>; si cruza hacia arriba del umbral de entrada se vende el spread, si cruza hacia abajo se compra, y se cierra cuando vuelve bajo el umbral de salida o cuando supera el stop. El retorno de la posición es el del spread dividido por el capital de las dos patas. Aquí se recalcula en vivo, sobre 2024 y 2025, con los parámetros que elijas, para 20 pares por co-movimiento y 10 por retorno y volatilidad. Los parámetros del z-score pueden fijarse con los datos de búsqueda o recalcularse con una ventana móvil, y esa diferencia es grande.</p>
+  <p>La precaución que define la pestaña: no basta mirar los 20 "mejores" pares de un ranking hecho con los datos de búsqueda, porque el ranking puede ser ruido. El notebook mira además <b>todos</b> los pares de cada método y un control de pares al azar, y los resultados completos están en la tabla de abajo: en 2024 y 2025, con esta regla y sin costos, ni la selección más cuidadosa separa la cartera completa del control. Fueron dos años de tendencias fuertes dentro de los sectores, el peor clima para una estrategia de reversión. Un backtest que dice "no" con claridad vale más que uno que dice "sí" por haber mirado el futuro.</p>
+  <div class="flow" id="par-bt"></div>
+  <p class="note" id="par-bt-nota"></p>
+</section>
+<div class="nav"><button type="button" id="par-prev">Anterior</button><button type="button" id="par-next">Siguiente</button></div>
+</div>
+
+<!-- ===================== 03 SCF ===================== -->
+<div class="modelo" id="m-scf">
+<div class="controls">
+  <div class="ctrl" data-pasos="3"><label>Grupo protegido</label><div class="seg" id="scf-grp"><button type="button" data-g="raza" aria-pressed="true">Grupo racial</button><button type="button" data-g="sexo" aria-pressed="false">Sexo del jefe de hogar</button></div></div>
+  <div class="ctrl" data-pasos="2"><label>Colorear por</label><div class="seg" id="scf-col"><button type="button" data-c="perfil" aria-pressed="true">Segmento</button><button type="button" data-c="raza" aria-pressed="false">Grupo racial</button><button type="button" data-c="sexo" aria-pressed="false">Sexo</button></div></div>
+  <div class="ctrl"><label>&nbsp;</label><button type="button" id="scf-replay">Volver a animar</button></div>
+</div>
+<nav class="rail" id="scf-rail"></nav>
+
+<section class="panel" id="scf-s0">
+  <h2>Perfilar inversionistas: segmentos que se convierten en decisiones</h2>
+  <p>Toda institución que asesora inversiones clasifica a sus clientes en un perfil (conservador, moderado, agresivo); en Chile lo exige la CMF y los multifondos de las AFP lo hacen con millones de personas. La tentación de automatizarlo con clustering es obvia, y el problema también: los tipos que encuentra el algoritmo son tipos de <b>situación financiera</b>, y la situación financiera de un país tiene historia. Si los hogares de menor patrimonio quedan en el segmento "conservador" y a ese segmento se le ofrecen productos de menor retorno esperado, cada asignación parece razonable y el efecto agregado es que el acceso al retorno queda condicionado a la riqueza previa, que está correlacionada con el sexo y la raza por razones que nada tienen que ver con las preferencias de riesgo.</p>
+  <p>La base es la <b>Survey of Consumer Finances 2022</b> de la Reserva Federal: 4.595 hogares con patrimonio, ingreso, activos, educación, alfabetización financiera y actitud declarada frente al riesgo. Una encuesta trae dos trampas: cinco <b>implicados</b> por hogar (22.975 filas que son 4.595 hogares; se trabaja con el primero) y <b>ponderadores</b>, porque sobremuestrea a los ricos a propósito. La tabla muestra cuánto se equivoca quien los ignora.</p>
+  <div class="flow" id="scf-datos"></div>
+</section>
+
+<section class="panel" id="scf-s1">
+  <h2>Segmentar hogares</h2>
+  <p>Las variables de dinero tienen colas enormes (el patrimonio va de −555.000 a más de 2.000 millones de dólares); se segmenta con el <b>logaritmo con signo</b>, \( \operatorname{sign}(x)\ln(1+|x|) \), y se escala. Usamos edad, educación, hijos, alfabetización financiera, ingreso, patrimonio y activos financieros, y <b>no usamos el sexo ni la raza</b>, a propósito, para preguntar después si los segmentos los reconstruyen solos. K-means con el ponderador en el ajuste; ni la inercia muestra codo ni la silueta máximo (los hogares forman un continuo), y se elige K = 4 porque produce perfiles que la industria reconoce.</p>
+  <div class="flow" id="scf-fit"></div>
+</section>
+
+<section class="panel" id="scf-s2">
+  <h2>Los cuatro perfiles</h2>
+  <p>Todo calculado ponderado, para describir a la población y no a la muestra. Los segmentos se ordenan por patrimonio y etapa de la vida, y la aversión al riesgo declarada los sigue: 21 a 28% sin tolerancia al riesgo en los dos segmentos con dinero, 48 a 68% en los dos sin dinero. Es el resultado que haría que un asesor automatizado ofreciera productos conservadores a quienes menos tienen. Colorea la nube por sexo o por grupo racial para anticipar lo que viene.</p>
+  <div class="flow" id="scf-perf"></div>
+</section>
+
+<section class="panel" id="scf-s3">
+  <h2>Los sesgos que esconden los segmentos</h2>
+  <p>Nunca usamos el sexo ni la raza. Dos formas de mirar si los segmentos son neutrales: la <b>composición</b> de cada segmento comparada con la población, y la <b>distribución</b> de cada grupo entre segmentos, que es la que importa para una regla de asignación: si al segmento "patrimonio consolidado" se le ofrecen los productos de mayor retorno esperado, la fracción de cada grupo que cae ahí es su <b>tasa de acceso</b>. La asociación se mide con chi-cuadrado y con la V de Cramér (0 independencia, 1 determinación total).</p>
+  <p>Esto no lo hizo el algoritmo: lo hizo la estructura de riqueza, que el algoritmo describió con precisión. Patrimonio, ingreso y educación son <b>proxies</b> del sexo y de la raza. Borrar las columnas protegidas no borra su efecto: solo impide medirlo. Lo exigible es medir y reportar; separar tolerancia de capacidad de riesgo; y definir qué significa "justo" antes de usar la regla (igual tasa de acceso entre grupos, o igual recomendación a igual situación financiera: las dos son razonables y son incompatibles). El notebook Clustering 3 repite el análisis con K = 6, sin las variables de dinero, y con otro implicado.</p>
+  <div class="flow" id="scf-ses"></div>
+  <p class="note" id="scf-ses-nota"></p>
+</section>
+<div class="nav"><button type="button" id="scf-prev">Anterior</button><button type="button" id="scf-next">Siguiente</button></div>
+</div>
+
+<!-- ===================== 04 HRP ===================== -->
+<div class="modelo" id="m-hrp">
+<div class="controls">
+  <div class="ctrl" data-pasos="3,4"><label>Universo</label><div class="seg" id="hrp-uni"><button type="button" data-u="49" aria-pressed="true">49 industrias</button><button type="button" data-u="etf" aria-pressed="false">14 ETF (acciones, bonos, oro...)</button></div></div>
+  <div class="ctrl" data-pasos="2"><label>Matriz de correlaciones</label><div class="seg" id="hrp-ord"><button type="button" data-o="alfa" aria-pressed="false">Orden alfabético</button><button type="button" data-o="arbol" aria-pressed="true">Orden del dendrograma</button></div></div>
+  <div class="ctrl"><label>&nbsp;</label><button type="button" id="hrp-replay">Volver a animar</button></div>
+</div>
+<nav class="rail" id="hrp-rail"></nav>
+
+<section class="panel" id="hrp-s0">
+  <h2>Repaso: carteras, diversificación y Markowitz</h2>
+  <p>Una cartera es un vector de pesos \(w\) que suman 1. Con retornos esperados \(\mu\) y covarianzas \(\Sigma\), su retorno esperado es \(w^\top \mu\) y su varianza \( w^\top \Sigma w = \sum_i \sum_j w_i w_j \sigma_{ij} \). La segunda fórmula explica la diversificación: la varianza no es el promedio de las varianzas, depende de las <b>covarianzas</b>; dos activos que no se mueven juntos se cancelan en parte. Markowitz (1952) lo convirtió en optimización: para cada retorno, la cartera de mínima varianza (la <b>frontera eficiente</b>), y la mejor de todas por retorno sobre riesgo (<b>máximo Sharpe</b>). Es correcto, y tiene un problema que no está en la matemática sino en los insumos: nunca conocemos \(\mu\) ni \(\Sigma\), los estimamos, y el optimizador trata cada error de estimación como información. DeMiguel, Garlappi y Uppal (2009): sobre decenas de bases, ninguna regla sofisticada le ganó de forma consistente a repartir en partes iguales.</p>
+  <p>Las reglas, de la más simple a la más ambiciosa: <b>1/N</b> (no estima nada), <b>inversa de la varianza</b> (\(w_i \propto 1/\sigma_i^2\)), <b>mínima varianza</b> (\(w \propto \Sigma^{-1}\mathbf{1}\), hay que invertir), <b>paridad de riesgo</b> (cada activo aporta la misma fracción de la varianza total) y <b>máximo Sharpe</b> (\(w \propto \Sigma^{-1}\mu\), necesita además \(\mu\)). Mientras más abajo, más se gana con insumos perfectos y más se pierde sin ellos. Los datos: 49 portafolios industriales de Kenneth French, diarios desde 2000.</p>
+  <div class="flow" id="hrp-rep"></div>
+</section>
+
+<section class="panel" id="hrp-s1">
+  <h2>El problema de estimación, visto</h2>
+  <p>Estimamos \(\mu\) y \(\Sigma\) con un año de retornos (2022), calculamos los pesos de cada regla y repetimos con 2023. Si los insumos estuvieran bien estimados, los pesos deberían parecerse. La fila del máximo Sharpe es el problema de Markowitz en una línea: pesos de varias veces el capital, decenas de posiciones cortas, y al reestimar hay que dar vuelta la cartera entera. La mínima varianza sin restricción también toma cortos y rota, aunque menos, porque no usa \(\mu\) (lo peor estimado) sino solo \(\Sigma\). Una medida para todo lo que sigue: el <b>número efectivo de activos</b>, \(1/\sum_i w_i^2\), que vale \(N\) con pesos iguales y 1 con todo en un activo.</p>
+  <div class="flow" id="hrp-est"></div>
+</section>
+
+<section class="panel" id="hrp-s2">
+  <h2>HRP paso a paso: distancias, dendrograma, cuasi-diagonalización, bisección</h2>
+  <p>La observación de López de Prado (2016): el optimizador trata a los 49 activos como comparables entre sí, pero los activos tienen <b>estructura de grupos</b>: los bancos se parecen entre sí, poco a las mineras y nada al oro. HRP usa esa estructura en tres pasos. <b>Distancias:</b> la correlación no es una distancia; la de Mantegna \( d_{ij} = \sqrt{(1-\rho_{ij})/2} \) sí lo es, y HRP agrupa por la distancia entre columnas de esa matriz (cómo se relaciona cada activo con todo el universo). <b>Dendrograma:</b> cada industria empieza sola, se unen las dos más cercanas, y así hasta un solo grupo; el algoritmo nunca vio la palabra "banco" y aun así recupera los sectores, deja al oro solo (su correlación con el resto es la más baja) y junta en un bloque grande a las industrias que comparten casi todo su riesgo con el mercado. <b>Cuasi-diagonalización:</b> la matriz de correlaciones ordenada según el árbol muestra los bloques que el orden alfabético esconde. <b>Bisección recursiva:</b> se parte el orden en dos mitades, se reparte el peso en proporción inversa a la varianza de cada mitad, y se repite hasta llegar a activos individuales; como solo multiplica por factores entre 0 y 1, nunca hay pesos negativos, y nunca se invierte \(\Sigma\).</p>
+  <div class="flow" id="hrp-arbol"></div>
+</section>
+
+<section class="panel" id="hrp-s3">
+  <h2>La prueba honesta: fuera de muestra, con ventana móvil</h2>
+  <p>En cada fecha se estima con los últimos 252 días, cada regla produce sus pesos y se mantienen 21 días hábiles; después se reestima. Ninguna decisión usa datos posteriores. Se mide retorno, volatilidad, Sharpe, caída máxima y <b>rotación</b> (fracción de la cartera que hay que transar cada mes). Cambia el universo arriba: con 49 industrias parecidas entre sí, 1/N rinde casi igual que todo; con 14 ETF de acciones, bonos, oro y materias primas, no.</p>
+  <div class="flow" id="hrp-bt"></div>
+  <p class="note" id="hrp-bt-nota"></p>
+</section>
+
+<section class="panel" id="hrp-s4">
+  <h2>¿Y entonces, para qué complicarse?</h2>
+  <p>Con las 49 industrias el máximo Sharpe es un desastre (volatilidad de cientos por ciento, rotación de decenas de veces la cartera al mes), y todo lo demás rinde parecido: 1/N, que no estima nada, tiene un Sharpe comparable con cualquiera, y la mejora de los métodos basados en riesgo está en la volatilidad, la caída máxima y la rotación, no en el Sharpe. Hay dos razones. Primera: esos activos <b>se parecen</b> (volatilidades entre 16% y 50%, la mitad entre 21% y 29%, correlación promedio 0,56); repartir en partes iguales ya es casi paridad de riesgo. Segunda: la ventaja de los métodos basados en riesgo es un <b>perfil</b> (menos volatilidad, menos caída, sin cortos, poca rotación en HRP), que para un mandato real con costos y restricciones vale más que unas centésimas de Sharpe.</p>
+  <p>Lo que hace falta para que 1/N deje de bastar es un universo donde los activos <b>no</b> se parezcan. En los 14 ETF, cinco de acciones aportan cerca del 60% del riesgo de la cartera 1/N: la diversificación es nominal. Las reglas basadas en riesgo cortan la volatilidad y la caída máxima a la mitad o menos; HRP lo hace con pesos positivos y sin invertir ninguna matriz, y es el método que mejor se porta cuando el número de activos se acerca al número de observaciones. La regla práctica: 1/N es el benchmark obligatorio; los métodos basados en riesgo pagan cuando los activos tienen riesgos muy distintos o hay muchos activos respecto de los datos; y los métodos que usan retornos esperados estimados no pagan nunca con promedios muestrales.</p>
+  <div class="flow" id="hrp-fin"></div>
+</section>
+<div class="nav"><button type="button" id="hrp-prev">Anterior</button><button type="button" id="hrp-next">Siguiente</button></div>
+</div>
+</div>
